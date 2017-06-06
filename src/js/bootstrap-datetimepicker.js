@@ -403,11 +403,13 @@
             },
 
             place = function () {
-                var position = (component || element).position(),
-                    offset = (component || element).offset(),
+                var anchorElement = options.forceElementPosition ? element : component || element,
+                    anchorPosition = anchorElement.position(),
+                    anchorOffset = anchorElement.offset(),
                     vertical = options.widgetPositioning.vertical,
                     horizontal = options.widgetPositioning.horizontal,
-                    parent;
+                    parent,
+                    parentOffset;
 
                 if (options.widgetParent) {
                     parent = options.widgetParent.append(widget);
@@ -421,10 +423,31 @@
                     element.children().first().after(widget);
                 }
 
+                // find the first parent element that has a relative css positioning
+                if (parent.css('position') === 'static') {
+                    parent = parent.parents().filter(function () {
+                        return $(this).css('position') !== 'static';
+                    }).first();
+                }
+
+                if (parent.length === 0) {
+                    throw new Error('datetimepicker component should be placed within a relative positioned container');
+                }
+
+                if (parent === element) {
+                    //set left from input, not component (button)
+                    anchorPosition.top = 0;    //input.position().top
+                    anchorOffset.top = input.offset().top;
+                    anchorPosition.left = 0;    //input.position().left
+                    anchorOffset.left = input.offset().left;
+                }
+
                 // Top and bottom logic
                 if (vertical === 'auto') {
-                    if (offset.top + widget.height() * 1.5 >= $(window).height() + $(window).scrollTop() &&
-                        widget.height() + element.outerHeight() < offset.top) {
+                    //if widget spacing from window bottom is less than half the widget's height
+                    // and there is enough height above
+                    if (anchorOffset.top + widget.height() * 1.5 >= $(window).height() + $(window).scrollTop() &&
+                        widget.height() + element.outerHeight() < anchorOffset.top) {
                         vertical = 'top';
                     } else {
                         vertical = 'bottom';
@@ -433,8 +456,10 @@
 
                 // Left and right logic
                 if (horizontal === 'auto') {
-                    if (parent.width() < offset.left + widget.outerWidth() / 2 &&
-                        offset.left + widget.outerWidth() > $(window).width()) {
+                    //if more than half widget is overflowing the right boundary of parent
+                    // and any of the widget is truncated by the window
+                    if (parent.width() < anchorOffset.left + widget.outerWidth() / 2 &&
+                        anchorOffset.left + widget.outerWidth() > $(window).width()) {
                         horizontal = 'right';
                     } else {
                         horizontal = 'left';
@@ -453,23 +478,23 @@
                     widget.removeClass('pull-right');
                 }
 
-                // find the first parent element that has a non-static css positioning
-                if (parent.css('position') === 'static') {
-                    parent = parent.parents().filter(function () {
-                        return $(this).css('position') !== 'static';
-                    }).first();
+                if (!options.forceElementPosition) {
+                    widget.css({
+                        top: vertical === 'top' ? 'auto' : anchorPosition.top + element.outerHeight(),
+                        bottom: vertical === 'top' ? parent.outerHeight() - anchorPosition.top : 'auto',
+                        left: horizontal === 'left' ? anchorPosition.left : 'auto',
+                        right: horizontal === 'left' ? 'auto' : parent.outerWidth() - element.outerWidth() - anchorPosition.left
+                    });
+                } else {
+                    //Parent used only to parent widget in DOM, position relative to anchor === element
+                    parentOffset = parent.offset();
+                    widget.css({
+                        top: vertical === 'top' ? 'auto' : anchorOffset.top - parentOffset.top + element.outerHeight(),
+                        bottom: vertical === 'top' ? parent.outerHeight() - (anchorOffset.top - parentOffset.top) : 'auto',
+                        left: horizontal === 'left' ? anchorOffset.left - parentOffset.left : 'auto',
+                        right: horizontal === 'left' ? 'auto' : parent.outerWidth() - (anchorOffset.left - parentOffset.left) - element.outerWidth()
+                    });
                 }
-
-                if (parent.length === 0) {
-                    throw new Error('datetimepicker component should be placed within a non-static positioned container');
-                }
-
-                widget.css({
-                    top: vertical === 'top' ? 'auto' : position.top + element.outerHeight(),
-                    bottom: vertical === 'top' ? parent.outerHeight() - (parent === element ? 0 : position.top) : 'auto',
-                    left: horizontal === 'left' ? (parent === element ? 0 : position.left) : 'auto',
-                    right: horizontal === 'left' ? 'auto' : parent.outerWidth() - element.outerWidth() - (parent === element ? 0 : position.left)
-                });
             },
 
             notifyEvent = function (e) {
@@ -2069,6 +2094,23 @@
             return picker;
         };
 
+        picker.forceElementPosition = function (forceElementPosition) {
+            if (arguments.length === 0) {
+                return options.forceElementPosition;
+            }
+
+            if (typeof forceElementPosition !== 'boolean') {
+                throw new TypeError('forceElementPosition() expects a boolean parameter');
+            }
+
+            options.forceElementPosition = forceElementPosition;
+            if (widget) {
+                hide();
+                show();
+            }
+            return picker;
+        };
+
         picker.keepOpen = function (keepOpen) {
             if (arguments.length === 0) {
                 return options.keepOpen;
@@ -2511,6 +2553,7 @@
             vertical: 'auto'
         },
         widgetParent: null,
+        forceElementPosition: false,
         ignoreReadonly: false,
         keepOpen: false,
         focusOnShow: true,
